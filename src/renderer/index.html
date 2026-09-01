@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src data:">
+<title>Clop Codex</title>
+<style>
+  :root{
+    --bg:#0b0f18; --panel:rgba(255,255,255,.045); --line:rgba(255,255,255,.1);
+    --text:#e9edf6; --muted:#8d97ab; --accent:#d97757; --ok:#3fb950; --bad:#e5534b;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;height:100vh;display:flex;flex-direction:column;
+    font:14px/1.55 "Segoe UI",system-ui,sans-serif;color:var(--text);
+    background:radial-gradient(120% 90% at 50% 0%,#121a2b 0%,#080b12 60%);
+    overflow:hidden;
+  }
+  button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);
+    background:var(--panel);color:var(--text);padding:7px 13px;transition:.18s}
+  button:hover{background:rgba(255,255,255,.09)}
+  button.primary{background:linear-gradient(135deg,var(--accent),#c9603c);border:none;font-weight:600}
+  button.danger{border-color:rgba(229,83,75,.4);color:#ffb3ad}
+  .muted{color:var(--muted)}
+
+  /* --- вход --- */
+  #login{flex:1;display:flex;align-items:center;justify-content:center;padding:28px}
+  .card{
+    max-width:430px;width:100%;background:var(--panel);border:1px solid var(--line);
+    border-radius:18px;padding:26px;text-align:center;
+  }
+  .card h1{margin:0 0 10px;font-size:20px}
+  .card p{margin:0 0 18px;color:var(--muted);font-size:13px}
+  #loginStatus{margin-top:14px;font-size:12.5px;min-height:18px;color:var(--muted)}
+
+  /* --- рабочий экран --- */
+  #app{flex:1;display:none;flex-direction:column;min-height:0}
+  header{
+    display:flex;align-items:center;gap:10px;padding:10px 14px;
+    border-bottom:1px solid var(--line);background:rgba(255,255,255,.03);flex-wrap:wrap;
+  }
+  header b{font-size:14px}
+  header .grow{flex:1}
+  select{background:#141b28;color:var(--text);border:1px solid var(--line);
+    border-radius:9px;padding:6px 9px;font:inherit}
+  #dirBtn{max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl}
+
+  #log{flex:1;overflow-y:auto;padding:18px 16px;display:flex;flex-direction:column;gap:12px}
+  .msg{max-width:82%;padding:11px 14px;border-radius:14px;white-space:pre-wrap;word-break:break-word}
+  .msg.me{align-self:flex-end;background:rgba(217,119,87,.18);border:1px solid rgba(217,119,87,.3)}
+  .msg.ai{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+  .step{
+    align-self:flex-start;max-width:82%;font-size:12.5px;border-radius:12px;
+    border:1px solid var(--line);background:rgba(255,255,255,.03);overflow:hidden;
+  }
+  .step .head{padding:7px 12px;border-bottom:1px solid var(--line);color:var(--muted)}
+  .step pre{margin:0;padding:9px 12px;white-space:pre-wrap;word-break:break-word;
+    font:12px ui-monospace,Consolas,monospace;max-height:230px;overflow:auto}
+  .step .out{border-top:1px solid var(--line);color:#b9c3d6}
+
+  footer{display:flex;gap:9px;padding:12px 14px;border-top:1px solid var(--line);background:rgba(255,255,255,.03)}
+  textarea{
+    flex:1;resize:none;height:62px;background:#111826;color:var(--text);
+    border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;
+  }
+  textarea:focus{outline:none;border-color:rgba(217,119,87,.55)}
+
+  /* --- подтверждение действия --- */
+  #ask{
+    position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(4,7,13,.78);padding:24px;z-index:20;
+  }
+  #ask .card{max-width:560px;text-align:left}
+  #ask h2{margin:0 0 8px;font-size:16px}
+  #ask pre{
+    background:#0d131f;border:1px solid var(--line);border-radius:10px;padding:11px;
+    font:12.5px ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-word;
+    max-height:220px;overflow:auto;margin:0 0 14px;
+  }
+  #ask .row{display:flex;gap:9px;justify-content:flex-end}
+  .warn{color:#ffcf8a;font-size:12.5px;margin:-6px 0 12px}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="card">
+    <h1>Clop Codex</h1>
+    <p>Помощник, который работает прямо на этом компьютере: читает и пишет файлы, запускает команды. Вход — через ваш Telegram, лимиты того же аккаунта.</p>
+    <button class="primary" id="loginBtn">Войти через Telegram</button>
+    <div id="loginStatus"></div>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <b id="who">…</b>
+    <span class="muted" id="plan"></span>
+    <span class="grow"></span>
+    <select id="model"></select>
+    <button id="dirBtn" title="Рабочая папка">…</button>
+    <button id="newBtn">Новый разговор</button>
+    <button id="outBtn" class="danger">Выйти</button>
+  </header>
+  <div id="log"></div>
+  <footer>
+    <textarea id="input" placeholder="Например: собери список всех .txt в папке и запиши их размеры в отчёт.txt"></textarea>
+    <button class="primary" id="send">Отправить</button>
+  </footer>
+</div>
+
+<div id="ask">
+  <div class="card">
+    <h2 id="askTitle">Разрешить действие?</h2>
+    <div class="warn" id="askWarn" style="display:none"></div>
+    <pre id="askBody"></pre>
+    <div class="row">
+      <button id="askNo">Отклонить</button>
+      <button class="primary" id="askYes">Разрешить</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
