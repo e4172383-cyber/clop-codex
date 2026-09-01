@@ -311,6 +311,19 @@
   body.compact .step pre{padding:7px 10px;font-size:11.5px;max-height:170px}
   body.compact .step .head{padding:5px 10px}
 
+  /* Скрепка и плашка выбранного вложения */
+  #clipBtn{padding:8px 11px;color:var(--muted);align-self:stretch}
+  #clipBtn:hover{color:var(--text);border-color:var(--accent2)}
+  #clipBtn svg{width:17px;height:17px}
+  #chip{
+    display:none;align-items:center;gap:8px;margin:0 14px 8px;padding:7px 11px;
+    border:1px solid var(--glass-line);border-radius:11px;background:rgba(255,255,255,.05);
+    font-size:12.5px;color:var(--muted);animation:updIn .35s cubic-bezier(.2,.9,.25,1) backwards;
+  }
+  #chip b{color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #chip .rm{margin-left:auto;cursor:pointer;opacity:.6}
+  #chip .rm:hover{opacity:1;color:var(--bad)}
+
   /* Остановить работу — на месте кнопки отправки, пока помощник занят */
   #stopBtn{display:none;align-items:center;gap:7px;background:rgba(229,83,75,.16);
     border-color:rgba(229,83,75,.4);color:#ffb3ad;font-weight:600}
@@ -407,7 +420,11 @@
       </button>
     </div>
     <div id="log"></div>
+    <div id="chip"><b id="chipName"></b><span class="rm" id="chipRm">✕</span></div>
     <div class="composer">
+      <button id="clipBtn" title="Прикрепить картинку или документ">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M20.4 11.5 12 19.9a5 5 0 0 1-7.1-7.1l8.5-8.4a3.3 3.3 0 1 1 4.7 4.7l-8.5 8.4a1.7 1.7 0 0 1-2.3-2.3l7.8-7.8"/></svg>
+      </button>
       <textarea id="input" placeholder="Например: собери список всех .txt в папке и запиши размеры в отчёт.txt"></textarea>
       <button class="primary" id="send">Отправить</button>
       <button id="stopBtn" title="Прервать работу после текущего шага">

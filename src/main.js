@@ -347,6 +347,38 @@ ipcMain.handle('logout', async () => {
   return { ok: true };
 });
 
+/* Вложение выбирается системным окном и читается здесь: у окна интерфейса нет
+   доступа к файлам вовсе, и заводить его ради скрепки не стоит. Наружу отдаём
+   уже готовую строку base64 — ровно в том виде, в каком её ждёт сервер. */
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+const OFFICE_EXT = new Set(['docx', 'xlsx', 'pptx', 'docm', 'xlsm', 'pptm']);
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+
+ipcMain.handle('attach', async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: 'Прикрепить картинку или документ',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Картинки и документы', extensions: [...IMAGE_EXT, ...OFFICE_EXT] },
+      { name: 'Все файлы', extensions: ['*'] },
+    ],
+  });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const file = r.filePaths[0];
+  const name = path.basename(file);
+  const ext = name.split('.').pop().toLowerCase();
+  const image = IMAGE_EXT.has(ext);
+  if (!image && !OFFICE_EXT.has(ext)) {
+    return { error: 'Понимаю картинки (png, jpg, webp) и документы Word, Excel, PowerPoint.' };
+  }
+  let buf;
+  try { buf = fs.readFileSync(file); } catch (e) { return { error: 'не удалось прочитать: ' + e.message }; }
+  const limit = image ? 8 * 1024 * 1024 : 12 * 1024 * 1024;
+  if (buf.length > limit) return { error: `файл больше ${limit / 1024 / 1024} МБ` };
+  const mime = image ? (MIME[ext] || 'image/png') : 'application/octet-stream';
+  return { name, kind: image ? 'image' : 'office', data: `data:${mime};base64,${buf.toString('base64')}` };
+});
+
 ipcMain.handle('open-external', (_e, url) => {
   if (/^https?:\/\//i.test(String(url))) shell.openExternal(url);
 });
@@ -354,7 +386,7 @@ ipcMain.handle('open-external', (_e, url) => {
 /* Один ход разговора: спрашиваем сервер, при необходимости выполняем
    действие на компьютере и возвращаемся к серверу с результатом. Цикл
    ограничен — иначе модель могла бы ходить по кругу без остановки. */
-ipcMain.handle('ask', async (_e, { text, model, chatId }) => {
+ipcMain.handle('ask', async (_e, { text, model, chatId, attachment }) => {
   if (!session.token) return { ok: false, error: 'нужен вход' };
   session.chatId = chatId || null;
   let prompt = session.chatId ? text : `${PROTOCOL}\n\nРабочая папка: ${workDir}\n\nЗадача: ${text}`;
@@ -371,7 +403,14 @@ ipcMain.handle('ask', async (_e, { text, model, chatId }) => {
       return { ok: true, text: 'Остановлено по вашей просьбе.', chatId: session.chatId, tokens, ms: Date.now() - started };
     }
     const r = await api('/desk/chat', {
-      body: { text: prompt, model, chatId: session.chatId, effort: settings.effort || undefined },
+      body: {
+        text: prompt, model, chatId: session.chatId, effort: settings.effort || undefined,
+        // Вложение прикладываем только к первому обращению: дальше в переписке
+        // идут результаты действий, и слать картинку заново незачем
+        ...(i === 0 && attachment && attachment.kind === 'image' ? { images: [attachment.data] } : {}),
+        ...(i === 0 && attachment && attachment.kind === 'office'
+          ? { office: { name: attachment.name, data: attachment.data } } : {}),
+      },
     });
     if (!r.ok) return { ok: false, error: r.error || `сервер ответил ${r.status}`, chatId: session.chatId };
     session.chatId = r.chatId;

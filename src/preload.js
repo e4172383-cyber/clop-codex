@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('clop', {
   setSettings: (v) => ipcRenderer.invoke('settings-set', v),
   pickDir: () => ipcRenderer.invoke('pick-dir'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  attach: () => ipcRenderer.invoke('attach'),
   checkUpdate: () => ipcRenderer.invoke('update-check'),
   version: () => ipcRenderer.invoke('version'),
   stop: () => ipcRenderer.invoke('stop'),

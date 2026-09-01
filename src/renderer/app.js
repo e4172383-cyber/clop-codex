@@ -180,14 +180,25 @@ function setBusy(on) {
 
 async function send() {
   if (busy || !current) return;
-  const text = $('input').value.trim();
-  if (!text) return;
+  let text = $('input').value.trim();
+  if (!text && !attachment) return;
+  // С одним вложением и без слов вопрос очевиден — подставляем его сами
+  if (!text) {
+    text = attachment.kind === 'image'
+      ? 'Опиши, что на изображении, и ответь по его содержимому.'
+      : 'Прокомментируй документ: о чём он и что важное внутри.';
+  }
   setBusy(true);
   $('input').value = '';
   sent = current;
   stickToBottom = true;
-  bubble('me', text);
-  sent.messages.push({ who: 'me', text });
+
+  // Вложение снимаем сразу: следующее сообщение уже без него
+  const att = attachment;
+  clearAttachment();
+  const shown = att ? `${att.kind === 'image' ? '🖼' : '📄'} ${att.name}\n${text}` : text;
+  bubble('me', shown);
+  sent.messages.push({ who: 'me', text: shown });
   // Название разговора — по первой фразе, как на сайте
   if (sent.messages.length === 1) {
     sent.title = text.slice(0, 42) + (text.length > 42 ? '…' : '');
@@ -198,7 +209,7 @@ async function send() {
 
   let r;
   try {
-    r = await window.clop.ask({ text, model: $('model').value, chatId: sent.chatId });
+    r = await window.clop.ask({ text, model: $('model').value, chatId: sent.chatId, attachment: att });
   } catch (e) {
     // Без этого перехвата busy оставался бы взведённым навсегда, и окно
     // переставало принимать сообщения до перезапуска
@@ -331,6 +342,22 @@ $('clearBtn').onclick = async () => {
   $('clearBtn').textContent = 'Удалено';
   setTimeout(() => { $('clearBtn').textContent = 'Удалить все разговоры'; }, 1600);
 };
+
+/* ---------- вложения ---------- */
+function clearAttachment() {
+  attachment = null;
+  $('chip').style.display = 'none';
+}
+
+$('clipBtn').onclick = async () => {
+  const a = await window.clop.attach();
+  if (!a) return;
+  if (a.error) { bubble('ai', '⚠️ ' + a.error); return; }
+  attachment = a;
+  $('chipName').textContent = (a.kind === 'image' ? '🖼 ' : '📄 ') + a.name;
+  $('chip').style.display = 'flex';
+};
+$('chipRm').onclick = clearAttachment;
 
 /* ---------- обновления ----------
    Кнопка появляется, только когда вышла версия новее установленной. Нажатие
