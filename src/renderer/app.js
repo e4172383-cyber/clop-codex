@@ -5,7 +5,12 @@
 const $ = (id) => document.getElementById(id);
 const log = $('log');
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const scroll = () => { log.scrollTop = log.scrollHeight; };
+// Прокручиваем вниз, только если пользователь и так внизу: иначе он читает
+// вывод выше, а лента дёргает его к последнему сообщению
+let stickToBottom = true;
+const nearBottom = () => log.scrollTop + log.clientHeight >= log.scrollHeight - 60;
+const scroll = () => { if (stickToBottom) log.scrollTop = log.scrollHeight; };
+log.addEventListener('scroll', () => { stickToBottom = nearBottom(); });
 
 let chats = [];        // [{ id, title, chatId, messages:[{who,text}] }]
 let current = null;    // текущий разговор
@@ -26,6 +31,8 @@ function renderList() {
 
 function openChat(c) {
   current = c;
+  liveStep = null;          // карточка прошлого разговора больше не наша
+  stickToBottom = true;
   log.innerHTML = '';
   if (!c.messages.length) showEmpty();
   for (const m of c.messages) {
@@ -114,6 +121,8 @@ async function showApp() {
   $('app').style.display = 'flex';
   $('who').textContent = me.name;
   $('plan').textContent = '· ' + me.plan;
+  $('selEffort').innerHTML = '<option value="">Как в боте</option>'
+    + (me.efforts || []).map((x) => `<option value="${esc(x.key)}">${esc(x.title)}</option>`).join('');
   $('model').innerHTML = (me.models || [])
     .map((m) => `<option value="${esc(m.key)}"${m.key === me.model ? ' selected' : ''}>${esc(m.title)}</option>`)
     .join('');
@@ -121,7 +130,7 @@ async function showApp() {
   const st = await window.clop.state();
   settings = st.settings;
   $('dirBtn').textContent = st.workDir;
-  syncSwitches();
+  syncSettings();
 
   chats = (await window.clop.chatsLoad()) || [];
   if (!chats.length) newChat(); else openChat(chats[0]);
@@ -143,6 +152,7 @@ function humanTime(ms) {
 }
 
 function metaLine(tokens, ms) {
+  if (settings.showUsage === false) return;
   if (!tokens && !ms) return;
   const d = document.createElement('div');
   d.className = 'meta';
@@ -151,31 +161,60 @@ function metaLine(tokens, ms) {
   scroll();
 }
 
+/* Разговор, которому принадлежит идущая работа. Пока помощник думает,
+   пользователь может открыть другой чат или удалить этот — тогда ответ и шаги
+   обязаны лечь в свой разговор, а в ленту попасть только если он всё ещё
+   открыт. Без этой привязки ответ уезжал в чужую переписку. */
+let sent = null;
+const stillOpen = () => sent && current && sent.id === current.id;
+
+function setBusy(on) {
+  busy = on;
+  $('send').style.display = on ? 'none' : '';
+  const stop = $('stopBtn');
+  stop.style.display = on ? 'flex' : 'none';
+  stop.disabled = false;
+  // Подпись меняется на «Останавливаю…», её нужно вернуть к следующему разу
+  if (on) stop.lastChild.textContent = ' Стоп';
+}
+
 async function send() {
   if (busy || !current) return;
   const text = $('input').value.trim();
   if (!text) return;
-  busy = true;
+  setBusy(true);
   $('input').value = '';
+  sent = current;
+  stickToBottom = true;
   bubble('me', text);
-  current.messages.push({ who: 'me', text });
+  sent.messages.push({ who: 'me', text });
   // Название разговора — по первой фразе, как на сайте
-  if (current.messages.length === 1) {
-    current.title = text.slice(0, 42) + (text.length > 42 ? '…' : '');
+  if (sent.messages.length === 1) {
+    sent.title = text.slice(0, 42) + (text.length > 42 ? '…' : '');
     renderList();
   }
   thinking = bubble('ai', 'Думаю…');
   thinking.classList.add('think');
 
-  const r = await window.clop.ask({ text, model: $('model').value, chatId: current.chatId });
+  let r;
+  try {
+    r = await window.clop.ask({ text, model: $('model').value, chatId: sent.chatId });
+  } catch (e) {
+    // Без этого перехвата busy оставался бы взведённым навсегда, и окно
+    // переставало принимать сообщения до перезапуска
+    r = { ok: false, error: String((e && e.message) || e) };
+  }
   dropThinking();
-  if (r.chatId) current.chatId = r.chatId;
+  if (r.chatId) sent.chatId = r.chatId;
   const answer = r.ok ? r.text : '⚠️ ' + (r.error || 'не получилось');
-  bubble('ai', answer);
-  metaLine(r.tokens, r.ms);
-  current.messages.push({ who: 'ai', text: answer, tokens: r.tokens, ms: r.ms });
+  sent.messages.push({ who: 'ai', text: answer, tokens: r.tokens, ms: r.ms });
+  if (stillOpen()) {
+    bubble('ai', answer);
+    metaLine(r.tokens, r.ms);
+  }
   saveChats();
-  busy = false;
+  sent = null;
+  setBusy(false);
   $('input').focus();
 }
 
@@ -183,8 +222,8 @@ async function send() {
 let liveStep = null;
 window.clop.onStep((v) => {
   dropThinking();
-  liveStep = stepCard(v.kind, v.arg, v.say);
-  if (current) current.messages.push({ who: 'step', kind: v.kind, arg: v.arg, say: v.say });
+  liveStep = stillOpen() ? stepCard(v.kind, v.arg, v.say) : null;
+  if (sent) sent.messages.push({ who: 'step', kind: v.kind, arg: v.arg, say: v.say });
 });
 window.clop.onStepDone((v) => {
   if (liveStep) {
@@ -195,8 +234,8 @@ window.clop.onStepDone((v) => {
     liveStep = null;
     scroll();
   }
-  if (current) {
-    const last = current.messages[current.messages.length - 1];
+  if (sent) {
+    const last = sent.messages[sent.messages.length - 1];
     if (last && last.who === 'step') last.result = v.result;
     saveChats();
   }
@@ -256,21 +295,42 @@ window.clop.onApprove((v) => {
 });
 
 /* ---------- настройки ---------- */
-function syncSwitches() {
-  $('swRead').classList.toggle('on', Boolean(settings.autoRead));
-  $('swWrite').classList.toggle('on', Boolean(settings.autoWrite));
-  $('swShell').classList.toggle('on', Boolean(settings.autoShell));
+const SWITCHES = {
+  swRead: 'autoRead', swWrite: 'autoWrite', swShell: 'autoShell',
+  swLaunch: 'autoLaunch', swEnter: 'enterSends', swUsage: 'showUsage', swCompact: 'compact',
+};
+
+function syncSettings() {
+  for (const [id, key] of Object.entries(SWITCHES)) $(id).classList.toggle('on', Boolean(settings[key]));
+  $('inSteps').value = settings.maxSteps ?? 14;
+  $('inTimeout').value = settings.shellTimeout ?? 120;
+  $('selEffort').value = settings.effort || '';
+  document.body.classList.toggle('compact', Boolean(settings.compact));
 }
 
-async function toggle(key, el) {
-  settings = await window.clop.setSettings({ [key]: !settings[key] });
-  syncSwitches();
-  el.animate([{ transform: 'scale(.94)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
+async function apply(patch, el) {
+  settings = await window.clop.setSettings(patch);
+  syncSettings();
+  if (el) el.animate([{ transform: 'scale(.94)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
 }
 
-$('swRead').onclick = (e) => toggle('autoRead', e.currentTarget);
-$('swWrite').onclick = (e) => toggle('autoWrite', e.currentTarget);
-$('swShell').onclick = (e) => toggle('autoShell', e.currentTarget);
+for (const [id, key] of Object.entries(SWITCHES)) {
+  $(id).onclick = (e) => apply({ [key]: !settings[key] }, e.currentTarget);
+}
+// Числа зажимаем сразу в поле: попросить 500 шагов подряд можно, а вот
+// получить их — нет, и лучше честно показать, что вышло
+$('inSteps').onchange = (e) => apply({ maxSteps: Math.min(40, Math.max(2, Number(e.target.value) || 14)) });
+$('inTimeout').onchange = (e) => apply({ shellTimeout: Math.min(600, Math.max(5, Number(e.target.value) || 120)) });
+$('selEffort').onchange = (e) => apply({ effort: e.target.value });
+
+$('clearBtn').onclick = async () => {
+  if (busy) return;
+  chats = [];
+  await window.clop.chatsSave(chats);
+  newChat();
+  $('clearBtn').textContent = 'Удалено';
+  setTimeout(() => { $('clearBtn').textContent = 'Удалить все разговоры'; }, 1600);
+};
 
 /* ---------- обновления ----------
    Кнопка появляется, только когда вышла версия новее установленной. Нажатие
@@ -289,8 +349,15 @@ async function checkUpdate() {
 $('loginBtn').onclick = startLogin;
 $('send').onclick = send;
 $('input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  if (e.key !== 'Enter') return;
+  const send1 = settings.enterSends === false ? (e.ctrlKey || e.metaKey) : !e.shiftKey;
+  if (send1) { e.preventDefault(); send(); }
 });
+$('stopBtn').onclick = (e) => {
+  window.clop.stop();
+  e.currentTarget.disabled = true;
+  e.currentTarget.lastChild.textContent = ' Останавливаю…';
+};
 $('newBtn').onclick = newChat;
 $('sbBtn').onclick = () => document.body.classList.toggle('collapsed');
 $('setBtn').onclick = () => { $('setOverlay').style.display = 'flex'; };

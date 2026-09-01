@@ -51,11 +51,21 @@ function forgetToken() {
 
 /* ---------- настройки и разговоры ---------- */
 const DEFAULTS = {
-  autoRead: true,    // читать и смотреть папки внутри рабочей — без вопроса
-  autoWrite: false,  // создавать и менять файлы внутри рабочей — без вопроса
-  autoShell: false,  // выполнять команды внутри рабочей — без вопроса
+  autoRead: true,     // читать и смотреть папки внутри рабочей — без вопроса
+  autoWrite: false,   // создавать и менять файлы внутри рабочей — без вопроса
+  autoShell: false,   // выполнять команды внутри рабочей — без вопроса
+  maxSteps: 14,       // сколько действий подряд помощник делает за один запрос
+  shellTimeout: 120,  // секунд на команду, дальше обрываем
+  effort: '',         // сила мышления; пусто — как выбрано в боте
+  autoLaunch: false,  // запускать вместе с Windows
+  enterSends: true,   // Enter отправляет, Shift+Enter переносит строку
+  showUsage: true,    // подпись с расходом под ответом
+  compact: false,     // плотный вид ленты
   workDir: '',
 };
+// Просьба остановиться приходит из окна и проверяется между шагами: обрывать
+// уже запущенную команду на середине опаснее, чем дать ей закончиться
+let stopRequested = false;
 let settings = { ...DEFAULTS };
 // «Разрешить до конца сеанса» — живёт только до закрытия приложения и на
 // диск не сохраняется: это разовое послабление, а не настройка
@@ -118,8 +128,16 @@ const isDangerous = (cmd) => DANGEROUS.some((re) => re.test(cmd));
 // Показываем окно подтверждения и ждём ответа: «нет», «да», «да до конца сеанса»
 function ask(kind, detail) {
   return new Promise((resolve) => {
+    // Окно могли закрыть, пока мы ждём ответа: считаем это отказом, иначе вся
+    // цепочка задачи повисла бы навсегда
+    if (!win || win.isDestroyed()) return resolve('no');
     const id = crypto.randomBytes(6).toString('hex');
-    ipcMain.once('approve:' + id, (_e, answer) => resolve(answer));
+    const onClose = () => { ipcMain.removeAllListeners('approve:' + id); resolve('no'); };
+    ipcMain.once('approve:' + id, (_e, answer) => {
+      if (win && !win.isDestroyed()) win.off('closed', onClose);
+      resolve(answer);
+    });
+    win.once('closed', onClose);
     win.webContents.send('approve', { id, kind, ...detail });
   });
 }
@@ -148,10 +166,11 @@ async function runShell(command) {
     // Команду отдаём оболочке одним куском, но окно консоли не показываем
     const win32 = process.platform === 'win32';
     execFile(win32 ? 'cmd.exe' : '/bin/sh', win32 ? ['/d', '/s', '/c', command] : ['-c', command],
-      { cwd: workDir, timeout: 120_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+      { cwd: workDir, timeout: Math.max(5, Number(settings.shellTimeout) || 120) * 1000,
+        maxBuffer: 8 * 1024 * 1024, windowsHide: true },
       (err, stdout, stderr) => {
         const out = [stdout, stderr].filter(Boolean).join('\n').trim();
-        if (err && err.killed) return resolve('Команда прервана по таймауту (120 с).\n' + cut(out));
+        if (err && err.killed) return resolve(`Команда прервана по таймауту (${Math.max(5, Number(settings.shellTimeout) || 120)} с).\n` + cut(out));
         resolve(cut(out || (err ? String(err.message) : 'Команда выполнена, вывода нет.')));
       });
   });
@@ -259,6 +278,7 @@ app.whenReady().then(() => {
   session.token = loadToken();
   settings = { ...DEFAULTS, ...loadJson('settings.json', {}) };
   workDir = settings.workDir && fs.existsSync(settings.workDir) ? settings.workDir : app.getPath('documents');
+  applyAutoLaunch();
   createWindow();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
@@ -270,8 +290,17 @@ ipcMain.handle('state', () => ({ hasToken: Boolean(session.token), server: SERVE
 ipcMain.handle('settings-set', (_e, v) => {
   settings = { ...settings, ...v };
   saveJson('settings.json', settings);
+  if ('autoLaunch' in v) applyAutoLaunch();
   return settings;
 });
+
+// Автозапуск прописывается в системе, а не хранится у нас: сверяем при
+// каждом изменении настройки и один раз при старте
+function applyAutoLaunch() {
+  try {
+    app.setLoginItemSettings({ openAtLogin: Boolean(settings.autoLaunch), args: [] });
+  } catch (e) { console.error('[автозапуск]', e.message); }
+}
 
 ipcMain.handle('pick-dir', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Рабочая папка' });
@@ -334,8 +363,16 @@ ipcMain.handle('ask', async (_e, { text, model, chatId }) => {
   const started = Date.now();
   let tokens = 0;
 
-  for (let i = 0; i < 14; i++) {
-    const r = await api('/desk/chat', { body: { text: prompt, model, chatId: session.chatId } });
+  const limit = Math.min(40, Math.max(2, Number(settings.maxSteps) || 14));
+  stopRequested = false;
+  for (let i = 0; i < limit; i++) {
+    if (stopRequested) {
+      stopRequested = false;
+      return { ok: true, text: 'Остановлено по вашей просьбе.', chatId: session.chatId, tokens, ms: Date.now() - started };
+    }
+    const r = await api('/desk/chat', {
+      body: { text: prompt, model, chatId: session.chatId, effort: settings.effort || undefined },
+    });
     if (!r.ok) return { ok: false, error: r.error || `сервер ответил ${r.status}`, chatId: session.chatId };
     session.chatId = r.chatId;
     tokens += r.tokens || 0;
@@ -350,7 +387,7 @@ ipcMain.handle('ask', async (_e, { text, model, chatId }) => {
     prompt = `%%%RESULT%%%\n${result}\n%%%END%%%`;
   }
   return {
-    ok: true, text: 'Остановился: слишком много шагов подряд. Уточните задачу.',
+    ok: true, text: `Остановился: подряд сделано ${limit} действий. Уточните задачу или поднимите предел в настройках.`,
     chatId: session.chatId, tokens, ms: Date.now() - started,
   };
 });
@@ -398,3 +435,5 @@ ipcMain.handle('update-check', async () => {
 });
 
 ipcMain.handle('version', () => app.getVersion());
+
+ipcMain.handle('stop', () => { stopRequested = true; return true; });

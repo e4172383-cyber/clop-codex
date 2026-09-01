@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('clop', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   checkUpdate: () => ipcRenderer.invoke('update-check'),
   version: () => ipcRenderer.invoke('version'),
+  stop: () => ipcRenderer.invoke('stop'),
 
   loginStart: () => ipcRenderer.invoke('login-start'),
   loginPoll: (v) => ipcRenderer.invoke('login-poll', v),

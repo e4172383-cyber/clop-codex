@@ -294,6 +294,28 @@
   .note{margin-top:16px;padding:12px 14px;border-radius:12px;font-size:12.3px;line-height:1.55;
     background:rgba(227,179,65,.09);border:1px solid rgba(227,179,65,.26);color:#f0d9a0}
 
+  /* Разделы настроек: подписи групп и поля ввода */
+  .grp{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);
+    margin:20px 0 2px;font-weight:600}
+  .grp:first-child{margin-top:0}
+  .opt input[type=number]{width:74px;background:#141b28;color:var(--text);
+    border:1px solid var(--glass-line);border-radius:10px;padding:6px 9px;font:inherit;text-align:center}
+  .opt select{max-width:150px}
+  .opt .side{display:flex;align-items:center;flex:none}
+  .link{background:none;border:none;color:#ff9d95;padding:6px 2px;font-size:12.5px}
+  .link:hover{background:none;color:#ffb3ad;transform:none;text-decoration:underline}
+
+  /* Плотный вид: та же лента, но помещается заметно больше */
+  body.compact #log{gap:8px;padding:14px 14px}
+  body.compact .msg{padding:8px 12px;font-size:13px;border-radius:12px}
+  body.compact .step pre{padding:7px 10px;font-size:11.5px;max-height:170px}
+  body.compact .step .head{padding:5px 10px}
+
+  /* Остановить работу — на месте кнопки отправки, пока помощник занят */
+  #stopBtn{display:none;align-items:center;gap:7px;background:rgba(229,83,75,.16);
+    border-color:rgba(229,83,75,.4);color:#ffb3ad;font-weight:600}
+  #stopBtn:hover{background:rgba(229,83,75,.26)}
+
   /* --- подтверждение действия --- */
   #ask .modal{max-width:610px}
   #ask pre{background:#0c1120;border:1px solid var(--glass-line);border-radius:11px;padding:12px;
@@ -388,6 +410,10 @@
     <div class="composer">
       <textarea id="input" placeholder="Например: собери список всех .txt в папке и запиши размеры в отчёт.txt"></textarea>
       <button class="primary" id="send">Отправить</button>
+      <button id="stopBtn" title="Прервать работу после текущего шага">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+        Стоп
+      </button>
     </div>
   </main>
 </div>
@@ -418,6 +444,68 @@
         </div>
         <div class="sw" id="swShell"></div>
       </div>
+      <div class="grp">Работа</div>
+      <div class="opt">
+        <div class="t">
+          <b>Сила мышления</b>
+          <span>Чем выше, тем дольше помощник думает и тем больше расходует. «Как в боте» — тот уровень, что выбран в Telegram.</span>
+        </div>
+        <div class="side"><select id="selEffort"></select></div>
+      </div>
+      <div class="opt">
+        <div class="t">
+          <b>Действий подряд за один запрос</b>
+          <span>Сколько шагов помощник сделает сам, прежде чем остановиться и отчитаться. От 2 до 40.</span>
+        </div>
+        <div class="side"><input type="number" id="inSteps" min="2" max="40" step="1"></div>
+      </div>
+      <div class="opt">
+        <div class="t">
+          <b>Таймаут команды, секунд</b>
+          <span>Дольше этого команда обрывается — на случай, если она ждёт ввода или зависла. От 5 до 600.</span>
+        </div>
+        <div class="side"><input type="number" id="inTimeout" min="5" max="600" step="5"></div>
+      </div>
+
+      <div class="grp">Окно</div>
+      <div class="opt">
+        <div class="t">
+          <b>Отправлять по Enter</b>
+          <span>Включено: Enter отправляет, Shift+Enter переносит строку. Выключено — наоборот, отправка по Ctrl+Enter.</span>
+        </div>
+        <div class="sw" id="swEnter"></div>
+      </div>
+      <div class="opt">
+        <div class="t">
+          <b>Показывать расход под ответом</b>
+          <span>Сколько токенов ушло и сколько заняла генерация.</span>
+        </div>
+        <div class="sw" id="swUsage"></div>
+      </div>
+      <div class="opt">
+        <div class="t">
+          <b>Плотный вид</b>
+          <span>Меньше отступов и шрифт мельче — на экран помещается заметно больше.</span>
+        </div>
+        <div class="sw" id="swCompact"></div>
+      </div>
+      <div class="opt">
+        <div class="t">
+          <b>Запускать вместе с Windows</b>
+          <span>Приложение будет открываться при входе в систему.</span>
+        </div>
+        <div class="sw" id="swLaunch"></div>
+      </div>
+
+      <div class="grp">Данные</div>
+      <div class="opt">
+        <div class="t">
+          <b>История разговоров</b>
+          <span>Переписка хранится только на этом компьютере. Удаление здесь не трогает историю в боте и на сайте.</span>
+        </div>
+        <div class="side"><button class="link" id="clearBtn">Удалить все разговоры</button></div>
+      </div>
+
       <div class="note">
         <b>Что не отключается никогда.</b> Всё, что выходит за рабочую папку, спрашивается всегда — иначе «не спрашивать про файлы» однажды обернулось бы переписанным системным каталогом. Опасные команды тоже спрашиваются всегда: такие вещи необратимы, и минута на прочтение дешевле потерянных данных.
       </div>
