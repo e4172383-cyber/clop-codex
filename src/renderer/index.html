@@ -27,6 +27,93 @@
   ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
   ::-webkit-scrollbar-track{background:transparent}
 
+  /* --- ЗАСТАВКА НАЧАЛО --- */
+  /* --- Заставка загрузки ---
+     Осенний закат: дождь стекает по «стеклу» экрана, вся вода собирается
+     в кольцо, кольцо разрывается на три капли — они прыгают, пока идёт
+     загрузка, — и в конце вода складывается в улыбку.
+     Вода — поле метаболов в низком разрешении (см. loaderReady в скрипте):
+     капли складываются по альфе, из градиента альфы берётся нормаль
+     поверхности, а по нормали — преломление фона и блик. */
+  #loader{
+    position:fixed;inset:0;z-index:100;overflow:hidden;
+    /* Фон под канвасом повторяет верх закатного градиента: пока канвас
+       не отрисовал первый кадр, страница не мигает тёмным */
+    background:linear-gradient(180deg,#4c5b8e 0%,#8d6f92 30%,#d98f63 56%,#f3b374 78%,#a95c40 100%);
+    transition:opacity .6s ease, transform .6s cubic-bezier(.2,.9,.25,1);
+  }
+  #loader.out{opacity:0;transform:scale(1.05);pointer-events:none}
+  #loader canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  /* Поле воды считается в низком разрешении и растягивается на экран:
+     микроразмытие убирает лесенку, насыщенность добавляет «мокрости» */
+  /* Вода считается шейдером в полном разрешении устройства —
+     ни размытия, ни сглаживания поверх ей больше не нужно */
+  #lWater{image-rendering:auto}
+  .loader-text{
+    position:absolute;left:0;right:0;top:calc(50% + 112px);text-align:center;z-index:3;
+    font-size:13.5px;color:rgba(52,26,16,.66);letter-spacing:.4px;font-weight:500;
+    text-shadow:0 1px 10px rgba(255,220,180,.5);transition:color .45s ease;
+  }
+  #loader.done .loader-text{color:rgba(38,17,9,.92)}
+  /* Спонсоры проявляются последней сценой; надпись загрузки к этому моменту
+     уже не нужна и уходит */
+  #loader.sponsors-on .loader-text{opacity:0}
+  .sponsors{
+    position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:22px;
+    opacity:0;pointer-events:none;transition:opacity .55s ease;
+  }
+  #loader.sponsors-on .sponsors{opacity:1}
+  .sp-title{
+    font-size:11.5px;letter-spacing:2.8px;text-transform:uppercase;font-weight:600;
+    color:rgba(52,26,16,.6);text-shadow:0 1px 10px rgba(255,224,186,.6);
+  }
+  .sp-row{display:flex;align-items:center;justify-content:center;gap:42px;flex-wrap:wrap}
+  .sp{opacity:0;transform:translateY(16px) scale(.94)}
+  #loader.sponsors-on .sp{animation:spIn .75s cubic-bezier(.2,.9,.25,1) forwards}
+  #loader.sponsors-on .sp:nth-child(2){animation-delay:.15s}
+  #loader.sponsors-on .sp:nth-child(3){animation-delay:.3s}
+  @keyframes spIn{to{opacity:1;transform:none}}
+  .sp-name{
+    font-size:27px;font-weight:800;letter-spacing:.4px;color:rgba(46,21,11,.9);
+    text-shadow:0 2px 14px rgba(255,228,190,.75);
+  }
+  .sp-logo{
+    width:46px;height:46px;display:block;fill:rgba(46,21,11,.88);
+    filter:drop-shadow(0 2px 12px rgba(255,228,190,.75));
+  }
+  @media (max-width:640px){
+    .sp-row{gap:26px}
+    .sp-name{font-size:21px}
+    .sp-logo{width:37px;height:37px}
+  }
+  /* Режим без анимации: ни канвасов, ни движения — только надпись */
+  #loader.flat{display:flex;align-items:center;justify-content:center}
+  #loader.flat canvas{display:none}
+  #loader.flat .loader-text{position:static}
+  @media (prefers-reduced-motion:reduce){
+    #loader canvas{display:none}
+  }
+
+  /* --- Жидкое стекло на WebGL ---
+     Нижний канвас рисует фон страницы и стёкла постоянных панелей, верхний
+     включается только под открытой модалкой: он держит затемнение и стекло
+     самой модалки, поэтому она не тонет под затемнением.
+     Пока WebGL не поднялся (или его нет), работает CSS-стекло ниже — сайт
+     выглядит ровно как раньше. */
+  #uiGl{position:fixed;inset:0;z-index:-2;display:none;pointer-events:none}
+  #uiGlTop{position:fixed;inset:0;z-index:49;display:none;pointer-events:none}
+  html.glass-gl #uiGl{display:block}
+  html.glass-gl .bg,html.glass-gl .grain{display:none}
+  /* Всё оформление панели уходит шейдеру: и подложка, и кромка, и тень */
+  html.glass-gl .glass{
+    background:transparent !important;box-shadow:none !important;
+    -webkit-backdrop-filter:none !important;backdrop-filter:none !important;
+  }
+  html.glass-gl .glass::after,html.glass-gl .glass::before{display:none}
+  html.glass-gl .overlay{background:transparent}
+
+  /* --- ЗАСТАВКА КОНЕЦ --- */
   /* --- живой фон --- */
   .bg{position:fixed;inset:0;z-index:-2;overflow:hidden}
   .blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
@@ -119,6 +206,26 @@
   .main-head{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--glass-line);
     background:rgba(255,255,255,.03);position:relative;z-index:3}
   .main-head .grow{flex:1}
+
+  /* Кнопка обновления: синее стекло в правом верхнем углу. Появляется только
+     когда вышла версия новее текущей — в остальное время её попросту нет,
+     а не спрятана прозрачностью */
+  .upd{
+    display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:12px;
+    color:#dce8ff;font-size:12.5px;font-weight:600;
+    background:linear-gradient(150deg,rgba(96,152,255,.34) 0%,rgba(54,104,214,.16) 55%,rgba(96,152,255,.26) 100%);
+    border:1px solid rgba(146,188,255,.44);
+    -webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);
+    box-shadow:0 6px 22px rgba(38,86,196,.3),inset 0 1px 0 rgba(255,255,255,.24);
+    animation:updIn .55s cubic-bezier(.2,.9,.25,1) backwards;
+  }
+  .upd:hover{
+    background:linear-gradient(150deg,rgba(120,172,255,.44) 0%,rgba(64,120,236,.24) 55%,rgba(120,172,255,.34) 100%);
+    border-color:rgba(176,208,255,.6);transform:translateY(-1px);
+  }
+  .upd .v{font-size:10.5px;font-weight:400;opacity:.72;letter-spacing:.2px}
+  .upd svg.ic{width:14px;height:14px}
+  @keyframes updIn{from{opacity:0;transform:translateY(-8px) scale(.94)}to{opacity:1;transform:none}}
   #dirBtn{max-width:290px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;font-size:12.5px}
 
   #log{flex:1;min-height:0;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:12px;position:relative;z-index:3}
@@ -200,6 +307,34 @@
 </head>
 <body>
 
+<!-- ЗАСТАВКА НАЧАЛО -->
+<!-- Заставка: дождь по стеклу поверх облаков стекает в кольцо загрузки,
+     а кольцо расплывается в улыбающееся лицо -->
+<div id="loader">
+  <canvas id="lSky" aria-hidden="true"></canvas>
+  <canvas id="lWater" aria-hidden="true"></canvas>
+  <div class="loader-text" id="loaderText">Думаю…</div>
+  <!-- Спонсоры: показываются последней сценой заставки, поверх воды -->
+  <div class="sponsors" aria-hidden="true">
+    <div class="sp-title">Спонсоры</div>
+    <div class="sp-row">
+      <div class="sp"><span class="sp-name">!87 Rapid</span></div>
+      <div class="sp">
+        <svg class="sp-logo" viewBox="0 0 24 24" role="img" aria-label="Apple">
+          <path d="M16.7 12.9c0-2.4 2-3.55 2.08-3.61-1.13-1.66-2.9-1.89-3.53-1.92-1.5-.15-2.93.88-3.69.88-.76 0-1.94-.86-3.19-.84-1.64.02-3.15.95-3.99 2.42-1.7 2.95-.43 7.32 1.22 9.72.81 1.17 1.77 2.49 3.03 2.44 1.22-.05 1.68-.79 3.15-.79 1.47 0 1.89.79 3.18.76 1.31-.02 2.14-1.19 2.94-2.37.93-1.36 1.31-2.68 1.33-2.75-.03-.01-2.55-.98-2.53-3.94z"/>
+          <path d="M14.28 5.6c.67-.82 1.13-1.95 1-3.08-.97.04-2.14.65-2.83 1.46-.62.72-1.17 1.87-1.02 2.98 1.08.08 2.18-.55 2.85-1.36z"/>
+        </svg>
+      </div>
+      <div class="sp">
+        <svg class="sp-logo" viewBox="0 0 24 24" role="img" aria-label="xAI">
+          <path d="M3.4 2.6h4.3L20.6 21.4h-4.3z"/>
+          <path d="M20.6 2.6h-4.3L3.4 21.4h4.3z"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ЗАСТАВКА КОНЕЦ -->
 <div class="bg"><div class="blob a"></div><div class="blob b"></div><div class="blob c"></div></div>
 
 <div id="login">
@@ -244,6 +379,10 @@
       <span class="grow"></span>
       <select id="model"></select>
       <button id="dirBtn" title="Рабочая папка">…</button>
+      <button class="upd" id="updBtn" title="Открыть страницу загрузки">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+        Обновить <span class="v"></span>
+      </button>
     </div>
     <div id="log"></div>
     <div class="composer">
@@ -304,6 +443,7 @@
   </div>
 </div>
 
+<script src="loader.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

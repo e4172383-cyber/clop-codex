@@ -272,6 +272,19 @@ $('swRead').onclick = (e) => toggle('autoRead', e.currentTarget);
 $('swWrite').onclick = (e) => toggle('autoWrite', e.currentTarget);
 $('swShell').onclick = (e) => toggle('autoShell', e.currentTarget);
 
+/* ---------- обновления ----------
+   Кнопка появляется, только когда вышла версия новее установленной. Нажатие
+   открывает страницу релиза в браузере: приложение ничего не скачивает и не
+   запускает само — обновляется пользователь, осознанно. */
+async function checkUpdate() {
+  const btn = $('updBtn');
+  const up = await window.clop.checkUpdate().catch(() => null);
+  if (!up) { btn.style.display = 'none'; return; }
+  btn.querySelector('.v').textContent = up.version;
+  btn.style.display = 'flex';
+  btn.onclick = () => window.clop.openExternal(up.url);
+}
+
 /* ---------- кнопки ---------- */
 $('loginBtn').onclick = startLogin;
 $('send').onclick = send;
@@ -326,8 +339,21 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/* Запуск. Пока играет заставка, окно успевает проверить токен и подтянуть
+   аккаунт, поэтому за анимацией не прячется пустое ожидание: убираем её,
+   когда готовы обе стороны — и данные, и сама сцена. */
 (async () => {
   const st = await window.clop.state();
   settings = st.settings || {};
-  if (st.hasToken) showApp();
+  if (st.hasToken) await showApp();
+
+  // Заставка идёт своим чередом, а проверка обновления — фоном: если GitHub
+  // недоступен, запуск от этого не задержится
+  checkUpdate();
+  setInterval(checkUpdate, 6 * 60 * 60 * 1000);
+
+  if (typeof loaderReady === 'undefined') return;
+  loaderReady.data();
+  await loaderReady.done;
+  hideLoader();
 })();

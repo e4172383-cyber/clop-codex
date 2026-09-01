@@ -354,3 +354,47 @@ ipcMain.handle('ask', async (_e, { text, model, chatId }) => {
     chatId: session.chatId, tokens, ms: Date.now() - started,
   };
 });
+
+/* ---------- проверка обновлений ----------
+   Спрашиваем GitHub, какая версия последняя, и сравниваем с текущей. Проверка
+   живёт в главном процессе не для удобства: у окна политика содержимого
+   default-src 'none', и запрос наружу оттуда всё равно не ушёл бы.
+   Ничего не скачиваем и не запускаем сами — только открываем страницу
+   релиза в браузере, чтобы приложение не умело подменять себя само. */
+const REPO = 'e4172383-cyber/clop-codex';
+
+// Сравнение вида 1.10.0 против 1.9.0: по частям числами, а не строками
+function newerThan(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
+
+let updateCache = { at: 0, value: null };
+
+ipcMain.handle('update-check', async () => {
+  // GitHub ограничивает частоту, да и смысла чаще получаса нет
+  if (Date.now() - updateCache.at < 30 * 60_000) return updateCache.value;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { 'user-agent': 'clop-codex', accept: 'application/vnd.github+json' },
+    });
+    if (!r.ok) throw new Error('ответ ' + r.status);
+    const j = await r.json();
+    const latest = String(j.tag_name || '').replace(/^v/i, '');
+    const value = latest && newerThan(latest, app.getVersion())
+      ? { version: latest, url: j.html_url } : null;
+    updateCache = { at: Date.now(), value };
+    return value;
+  } catch {
+    // Нет сети или GitHub недоступен — молча ничего не показываем
+    updateCache = { at: Date.now(), value: null };
+    return null;
+  }
+});
+
+ipcMain.handle('version', () => app.getVersion());
