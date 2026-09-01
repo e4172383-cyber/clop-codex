@@ -311,6 +311,18 @@
   body.compact .step pre{padding:7px 10px;font-size:11.5px;max-height:170px}
   body.compact .step .head{padding:5px 10px}
 
+  /* Плашка акции: приходит с сервера, живёт ровно столько, сколько идёт акция */
+  .promo{
+    display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:12px;
+    color:#d9ffe4;font-size:12.5px;font-weight:600;
+    background:linear-gradient(150deg,rgba(63,185,80,.32) 0%,rgba(38,132,52,.16) 55%,rgba(63,185,80,.24) 100%);
+    border:1px solid rgba(120,220,140,.42);
+    -webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);
+    box-shadow:0 6px 22px rgba(28,140,54,.26),inset 0 1px 0 rgba(255,255,255,.2);
+    animation:updIn .55s cubic-bezier(.2,.9,.25,1) backwards;
+  }
+  .promo .left{font-size:10.5px;font-weight:400;opacity:.78}
+
   /* Скрепка и плашка выбранного вложения */
   #clipBtn{padding:8px 11px;color:var(--muted);align-self:stretch}
   #clipBtn:hover{color:var(--text);border-color:var(--accent2)}
@@ -414,6 +426,7 @@
       <span class="grow"></span>
       <select id="model"></select>
       <button id="dirBtn" title="Рабочая папка">…</button>
+      <span class="promo" id="promo"><span id="promoText"></span><span class="left" id="promoLeft"></span></span>
       <button class="upd" id="updBtn" title="Открыть страницу загрузки">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
         Обновить <span class="v"></span>

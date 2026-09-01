@@ -1,6 +1,6 @@
 {
   "name": "clop-codex",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Настольный помощник Clop Codex: вход через Telegram, лимиты того же аккаунта, работа с файлами и командами на своём компьютере",
   "main": "src/main.js",
   "type": "commonjs",

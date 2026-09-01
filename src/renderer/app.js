@@ -114,18 +114,50 @@ async function startLogin() {
 }
 
 /* ---------- рабочий экран ---------- */
+/* Состояние аккаунта — модели, тариф, силы мышления, акции — приходит с
+   сервера и перечитывается раз в минуту. Поэтому появление новой модели или
+   акции доезжает до окна само: переустанавливать приложение не нужно. */
+function applyMe(me) {
+  $('who').textContent = me.name;
+  $('plan').textContent = '· ' + me.plan;
+
+  const effortNow = $('selEffort').value;
+  $('selEffort').innerHTML = '<option value="">Как в боте</option>'
+    + (me.efforts || []).map((x) => `<option value="${esc(x.key)}">${esc(x.title)}</option>`).join('');
+  $('selEffort').value = settings.effort || effortNow || '';
+
+  // Выбор пользователя не сбрасываем, пока модель ему доступна: иначе список
+  // сам собой перескакивал бы на другую модель посреди работы
+  const chosen = $('model').value;
+  const models = me.models || [];
+  const keep = models.some((m) => m.key === chosen) ? chosen : me.model;
+  $('model').innerHTML = models
+    .map((m) => `<option value="${esc(m.key)}"${m.key === keep ? ' selected' : ''}>${esc(m.title)}</option>`)
+    .join('');
+
+  showPromo(me.promo);
+}
+
+function showPromo(p) {
+  const el = $('promo');
+  if (!p || !p.until || Date.now() >= p.until) { el.style.display = 'none'; return; }
+  $('promoText').textContent = '🎁 ' + p.title;
+  const left = Math.max(0, Math.round((p.until - Date.now()) / 60000));
+  $('promoLeft').textContent = left >= 1 ? `ещё ${left} мин` : 'заканчивается';
+  el.style.display = 'flex';
+}
+
+async function refreshMe() {
+  const me = await window.clop.me().catch(() => null);
+  if (me && me.ok) applyMe(me);
+}
+
 async function showApp() {
   const me = await window.clop.me();
   if (!me || !me.ok) { $('login').style.display = 'flex'; $('app').style.display = 'none'; return; }
   $('login').style.display = 'none';
   $('app').style.display = 'flex';
-  $('who').textContent = me.name;
-  $('plan').textContent = '· ' + me.plan;
-  $('selEffort').innerHTML = '<option value="">Как в боте</option>'
-    + (me.efforts || []).map((x) => `<option value="${esc(x.key)}">${esc(x.title)}</option>`).join('');
-  $('model').innerHTML = (me.models || [])
-    .map((m) => `<option value="${esc(m.key)}"${m.key === me.model ? ' selected' : ''}>${esc(m.title)}</option>`)
-    .join('');
+  applyMe(me);
 
   const st = await window.clop.state();
   settings = st.settings;
@@ -445,6 +477,8 @@ document.addEventListener('keydown', (e) => {
   // недоступен, запуск от этого не задержится
   checkUpdate();
   setInterval(checkUpdate, 6 * 60 * 60 * 1000);
+  // Модели, тариф и акции меняются на стороне сервера — перечитываем их
+  setInterval(refreshMe, 60_000);
 
   if (typeof loaderReady === 'undefined') return;
   loaderReady.data();
