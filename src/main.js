@@ -329,20 +329,28 @@ ipcMain.handle('ask', async (_e, { text, model, chatId }) => {
   if (!session.token) return { ok: false, error: 'нужен вход' };
   session.chatId = chatId || null;
   let prompt = session.chatId ? text : `${PROTOCOL}\n\nРабочая папка: ${workDir}\n\nЗадача: ${text}`;
+  // Один запрос пользователя — это несколько обращений к серверу, поэтому
+  // расход и время копим по всей задаче, а не показываем последний шаг
+  const started = Date.now();
+  let tokens = 0;
 
   for (let i = 0; i < 14; i++) {
     const r = await api('/desk/chat', { body: { text: prompt, model, chatId: session.chatId } });
     if (!r.ok) return { ok: false, error: r.error || `сервер ответил ${r.status}`, chatId: session.chatId };
     session.chatId = r.chatId;
+    tokens += r.tokens || 0;
 
     const tool = parseTool(r.text);
     const said = r.text.replace(/%%%[\s\S]*?%%%END%%%/g, '').trim();
-    if (!tool) return { ok: true, text: said || r.text, chatId: session.chatId };
+    if (!tool) return { ok: true, text: said || r.text, chatId: session.chatId, tokens, ms: Date.now() - started };
 
     win.webContents.send('step', { kind: tool.kind, arg: tool.arg, say: said });
     const result = await runTool(tool);
     win.webContents.send('step-done', { kind: tool.kind, result });
     prompt = `%%%RESULT%%%\n${result}\n%%%END%%%`;
   }
-  return { ok: true, text: 'Остановился: слишком много шагов подряд. Уточните задачу.', chatId: session.chatId };
+  return {
+    ok: true, text: 'Остановился: слишком много шагов подряд. Уточните задачу.',
+    chatId: session.chatId, tokens, ms: Date.now() - started,
+  };
 });

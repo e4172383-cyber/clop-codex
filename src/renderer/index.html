@@ -112,22 +112,33 @@
   .chat-item:hover .x{opacity:.7}
   .sb-foot{padding:8px;border-top:1px solid var(--glass-line);display:flex;flex-direction:column;gap:2px}
 
-  .main{flex:1;min-width:0;border-radius:20px;display:flex;flex-direction:column;overflow:hidden;
+  /* min-height:0 обязателен: без него колонка внутри flex не сжимается по
+     содержимому, лента вырастает за окно и перестаёт прокручиваться */
+  .main{flex:1;min-width:0;min-height:0;border-radius:20px;display:flex;flex-direction:column;overflow:hidden;
     animation:riseIn .6s cubic-bezier(.2,.9,.25,1) backwards}
   .main-head{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--glass-line);
     background:rgba(255,255,255,.03);position:relative;z-index:3}
   .main-head .grow{flex:1}
   #dirBtn{max-width:290px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;font-size:12.5px}
 
-  #log{flex:1;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:12px;position:relative;z-index:3}
-  .msg{max-width:80%;padding:11px 15px;border-radius:15px;white-space:pre-wrap;word-break:break-word;
+  #log{flex:1;min-height:0;overflow-y:auto;padding:20px 18px;display:flex;flex-direction:column;gap:12px;position:relative;z-index:3}
+  /* Подпись под ответом: расход и время генерации */
+  .meta{align-self:flex-start;flex:none;margin-top:-6px;font-size:11.5px;color:var(--muted);
+    display:flex;align-items:center;gap:7px;padding-left:4px}
+  .meta i{width:3px;height:3px;border-radius:50%;background:currentColor;opacity:.6;font-style:normal}
+  /* Пульсирующее «Думаю…» — видно, что работа идёт */
+  .msg.think{opacity:.75;animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.5}50%{opacity:.95}}
+  /* flex:none у всех элементов ленты: иначе колонка ужимает их по высоте,
+     и содержимое карточек обрезается вместо прокрутки */
+  .msg{max-width:80%;flex:none;padding:11px 15px;border-radius:15px;white-space:pre-wrap;word-break:break-word;
     animation:riseIn .35s cubic-bezier(.2,.9,.25,1) backwards}
   .msg.me{align-self:flex-end;background:rgba(217,119,87,.2);border:1px solid rgba(217,119,87,.32)}
   .msg.ai{align-self:flex-start;background:rgba(255,255,255,.05);border:1px solid var(--glass-line)}
-  .empty{margin:auto;text-align:center;color:var(--muted);font-size:13px;max-width:380px}
+  .empty{margin:auto;flex:none;text-align:center;color:var(--muted);font-size:13px;max-width:380px}
 
   .step{
-    align-self:flex-start;max-width:82%;font-size:12.5px;border-radius:13px;overflow:hidden;
+    align-self:flex-start;max-width:82%;flex:none;font-size:12.5px;border-radius:13px;overflow:hidden;
     border:1px solid var(--glass-line);background:rgba(255,255,255,.035);
     animation:riseIn .35s cubic-bezier(.2,.9,.25,1) backwards;
   }

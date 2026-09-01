@@ -30,7 +30,10 @@ function openChat(c) {
   if (!c.messages.length) showEmpty();
   for (const m of c.messages) {
     if (m.who === 'step') stepCard(m.kind, m.arg, m.say, m.result);
-    else bubble(m.who, m.text);
+    else {
+      bubble(m.who, m.text);
+      if (m.who === 'ai' && (m.tokens || m.ms)) metaLine(m.tokens, m.ms);
+    }
   }
   renderList();
   scroll();
@@ -124,6 +127,30 @@ async function showApp() {
   if (!chats.length) newChat(); else openChat(chats[0]);
 }
 
+// «Думаю…» живёт до первого события: дальше о ходе работы рассказывают
+// карточки шагов, и висящий пузырь только мешает
+let thinking = null;
+function dropThinking() {
+  if (thinking) { thinking.remove(); thinking = null; }
+}
+
+const nf = new Intl.NumberFormat('ru-RU');
+function humanTime(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} с`;
+  const m = Math.floor(s / 60);
+  return `${m} мин ${String(s % 60).padStart(2, '0')} с`;
+}
+
+function metaLine(tokens, ms) {
+  if (!tokens && !ms) return;
+  const d = document.createElement('div');
+  d.className = 'meta';
+  d.innerHTML = `${nf.format(tokens || 0)} токенов <i></i> ${humanTime(ms || 0)}`;
+  log.appendChild(d);
+  scroll();
+}
+
 async function send() {
   if (busy || !current) return;
   const text = $('input').value.trim();
@@ -137,14 +164,16 @@ async function send() {
     current.title = text.slice(0, 42) + (text.length > 42 ? '…' : '');
     renderList();
   }
-  const wait = bubble('ai', 'Думаю…');
+  thinking = bubble('ai', 'Думаю…');
+  thinking.classList.add('think');
 
   const r = await window.clop.ask({ text, model: $('model').value, chatId: current.chatId });
-  wait.remove();
+  dropThinking();
   if (r.chatId) current.chatId = r.chatId;
   const answer = r.ok ? r.text : '⚠️ ' + (r.error || 'не получилось');
   bubble('ai', answer);
-  current.messages.push({ who: 'ai', text: answer });
+  metaLine(r.tokens, r.ms);
+  current.messages.push({ who: 'ai', text: answer, tokens: r.tokens, ms: r.ms });
   saveChats();
   busy = false;
   $('input').focus();
@@ -153,6 +182,7 @@ async function send() {
 /* ---------- шаги работы ---------- */
 let liveStep = null;
 window.clop.onStep((v) => {
+  dropThinking();
   liveStep = stepCard(v.kind, v.arg, v.say);
   if (current) current.messages.push({ who: 'step', kind: v.kind, arg: v.arg, say: v.say });
 });
