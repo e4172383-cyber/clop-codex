@@ -15,6 +15,7 @@ log.addEventListener('scroll', () => { stickToBottom = nearBottom(); });
 let chats = [];        // [{ id, title, chatId, messages:[{who,text}] }]
 let current = null;    // текущий разговор
 let settings = {};
+let attachment = null;   // выбранная картинка или документ
 let busy = false;
 
 /* ---------- список разговоров ---------- */
@@ -211,6 +212,14 @@ function setBusy(on) {
 }
 
 async function send() {
+  try { await sendInner(); } catch (e) {
+    setBusy(false);
+    dropThinking();
+    bubble('ai', '⚠️ Не удалось отправить: ' + String((e && e.message) || e));
+  }
+}
+
+async function sendInner() {
   if (busy || !current) return;
   let text = $('input').value.trim();
   if (!text && !attachment) return;
@@ -236,6 +245,7 @@ async function send() {
     sent.title = text.slice(0, 42) + (text.length > 42 ? '…' : '');
     renderList();
   }
+  liveText = '';
   thinking = bubble('ai', 'Думаю…');
   thinking.classList.add('think');
 
@@ -263,7 +273,19 @@ async function send() {
 
 /* ---------- шаги работы ---------- */
 let liveStep = null;
+// Текст ответа идёт кусками: показываем его прямо в пузыре ожидания, чтобы
+// было видно, что работа идёт, а не висит
+let liveText = '';
+window.clop.onDelta((piece) => {
+  if (!thinking) return;
+  liveText += piece;
+  thinking.classList.remove('think');
+  thinking.textContent = liveText.slice(-4000);
+  scroll();
+});
+
 window.clop.onStep((v) => {
+  liveText = '';
   dropThinking();
   liveStep = stillOpen() ? stepCard(v.kind, v.arg, v.say) : null;
   if (sent) sent.messages.push({ who: 'step', kind: v.kind, arg: v.arg, say: v.say });

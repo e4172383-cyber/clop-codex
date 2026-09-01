@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('clop', {
 
   onApprove: (fn) => ipcRenderer.on('approve', (_e, v) => fn(v)),
   answerApprove: (id, answer) => ipcRenderer.send('approve:' + id, answer),
+  onDelta: (fn) => ipcRenderer.on('delta', (_e, v) => fn(v)),
   onStep: (fn) => ipcRenderer.on('step', (_e, v) => fn(v)),
   onStepDone: (fn) => ipcRenderer.on('step-done', (_e, v) => fn(v)),
 });

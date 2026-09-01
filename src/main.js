@@ -383,6 +383,43 @@ ipcMain.handle('open-external', (_e, url) => {
   if (/^https?:\/\//i.test(String(url))) shell.openExternal(url);
 });
 
+/* Обращение к серверу с потоком: ответ приходит событиями, и окно показывает
+   текст по мере появления. Раньше приложение молча ждало готовый ответ, и
+   пользователь видел «Думаю…» иногда по минуте, не понимая, идёт ли работа. */
+async function askStream(body, onDelta) {
+  const r = await fetch(SERVER + '/desk/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${session.token}` },
+    body: JSON.stringify({ ...body, stream: true }),
+  });
+  // Сервер может ответить обычным JSON — например, при отказе по лимиту
+  if (!String(r.headers.get('content-type') || '').includes('event-stream')) {
+    const data = await r.json().catch(() => ({}));
+    return { status: r.status, ...data };
+  }
+
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', result = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    // События разделены пустой строкой; последний кусок может быть неполным
+    const parts = buf.split('\n\n');
+    buf = parts.pop();
+    for (const part of parts) {
+      const line = part.split('\n').find((l) => l.startsWith('data: '));
+      if (!line) continue;
+      let ev;
+      try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+      if (ev.delta) onDelta(ev.delta);
+      else if (ev.done) result = ev;
+    }
+  }
+  return result || { ok: false, error: 'поток оборвался' };
+}
+
 /* Один ход разговора: спрашиваем сервер, при необходимости выполняем
    действие на компьютере и возвращаемся к серверу с результатом. Цикл
    ограничен — иначе модель могла бы ходить по кругу без остановки. */
@@ -402,15 +439,15 @@ ipcMain.handle('ask', async (_e, { text, model, chatId, attachment }) => {
       stopRequested = false;
       return { ok: true, text: 'Остановлено по вашей просьбе.', chatId: session.chatId, tokens, ms: Date.now() - started };
     }
-    const r = await api('/desk/chat', {
-      body: {
-        text: prompt, model, chatId: session.chatId, effort: settings.effort || undefined,
+    const r = await askStream({
+      text: prompt, model, chatId: session.chatId, effort: settings.effort || undefined,
         // Вложение прикладываем только к первому обращению: дальше в переписке
         // идут результаты действий, и слать картинку заново незачем
-        ...(i === 0 && attachment && attachment.kind === 'image' ? { images: [attachment.data] } : {}),
-        ...(i === 0 && attachment && attachment.kind === 'office'
-          ? { office: { name: attachment.name, data: attachment.data } } : {}),
-      },
+      ...(i === 0 && attachment && attachment.kind === 'image' ? { images: [attachment.data] } : {}),
+      ...(i === 0 && attachment && attachment.kind === 'office'
+        ? { office: { name: attachment.name, data: attachment.data } } : {}),
+    }, (piece) => {
+      if (win && !win.isDestroyed()) win.webContents.send('delta', piece);
     });
     if (!r.ok) return { ok: false, error: r.error || `сервер ответил ${r.status}`, chatId: session.chatId };
     session.chatId = r.chatId;
