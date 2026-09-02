@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
+const roblox = require('./roblox.js');
 
 /* Clop Codex — настольный помощник.
 
@@ -62,6 +63,11 @@ const DEFAULTS = {
   showUsage: true,    // подпись с расходом под ответом
   compact: false,     // плотный вид ленты
   workDir: '',
+  // Связь с Roblox Studio: сервер поднимается только на 127.0.0.1 и только
+  // когда включено — выключенная связь не слушает вообще ничего
+  robloxEnabled: false,
+  robloxPort: 34873,
+  autoStudio: false,  // менять плейс без вопроса
 };
 // Просьба остановиться приходит из окна и проверяется между шагами: обрывать
 // уже запущенную команду на середине опаснее, чем дать ей закончиться
@@ -143,7 +149,7 @@ function ask(kind, detail) {
 }
 
 async function confirm(kind, detail) {
-  const auto = { read: settings.autoRead, write: settings.autoWrite, shell: settings.autoShell }[kind];
+  const auto = { read: settings.autoRead, write: settings.autoWrite, shell: settings.autoShell, studio: settings.autoStudio }[kind];
   const relaxed = auto || sessionAllow[kind];
   const mustAsk = detail.outside || (kind === 'shell' && detail.danger);
   if (relaxed && !mustAsk) return true;
@@ -210,6 +216,33 @@ async function writeFile(target, content) {
   } catch (e) { return 'Не удалось записать: ' + e.message; }
 }
 
+/* Действие в Roblox Studio. Показ в подтверждении делаем человеческим: в
+   окне должно быть видно, что именно поменяется в плейсе, а не сырой JSON. */
+async function runStudio(body) {
+  let cmd;
+  try { cmd = JSON.parse(body); } catch (e) { return 'Не разобрал действие для Студии (нужен JSON): ' + e.message; }
+  if (!cmd || typeof cmd.op !== 'string') return 'В действии для Студии нет поля op.';
+
+  const цель = cmd.path || cmd.parent || 'Workspace';
+  const описание = {
+    tree: 'посмотреть дерево ' + цель,
+    read: 'прочитать ' + цель,
+    create: 'создать ' + (cmd.class || '?') + ' «' + (cmd.name || cmd.class || '') + '» в ' + цель,
+    set: 'изменить свойства ' + цель,
+    delete: 'удалить ' + цель,
+    script: 'положить скрипт «' + (cmd.name || '') + '» в ' + цель,
+    clear: 'очистить ' + цель,
+    select: 'выделить ' + цель,
+  }[cmd.op] || (cmd.op + ' ' + цель);
+
+  const меняет = !['tree', 'read', 'select'].includes(cmd.op);
+  if (меняет && !(await confirm('studio', { path: описание, preview: body.slice(0, 1500) }))) {
+    return 'Пользователь отклонил действие в Студии.';
+  }
+  const r = await roblox.отправить(cmd);
+  return cut(String(r.output || (r.ok ? 'готово' : 'не вышло')));
+}
+
 /* ---------- разбор ответа модели ----------
    Модель просит действие маркерами. Берём только первое действие за ход:
    так пользователь видит каждый шаг и может остановиться в любой момент. */
@@ -218,11 +251,13 @@ function parseTool(text) {
   const read = /%%%READ%%%\s*\n([\s\S]*?)\n?%%%END%%%/.exec(text);
   const list = /%%%LIST%%%\s*\n([\s\S]*?)\n?%%%END%%%/.exec(text);
   const write = /%%%WRITE\s+([^\n%]+)%%%\s*\n([\s\S]*?)\n?%%%END%%%/.exec(text);
+  const studio = /%%%STUDIO%%%\s*\n([\s\S]*?)\n?%%%END%%%/.exec(text);
   return [
     shell && { at: shell.index, kind: 'shell', arg: shell[1].trim() },
     read && { at: read.index, kind: 'read', arg: read[1].trim() },
     list && { at: list.index, kind: 'list', arg: list[1].trim() },
     write && { at: write.index, kind: 'write', arg: write[1].trim(), body: write[2] },
+    studio && { at: studio.index, kind: 'studio', arg: 'Roblox Studio', body: studio[1].trim() },
   ].filter(Boolean).sort((a, b) => a.at - b.at)[0] || null;
 }
 
@@ -231,10 +266,11 @@ function runTool(tool) {
   if (tool.kind === 'read') return readFile(tool.arg);
   if (tool.kind === 'list') return listDir(tool.arg);
   if (tool.kind === 'write') return writeFile(tool.arg, tool.body);
+  if (tool.kind === 'studio') return runStudio(tool.body);
   return Promise.resolve('Неизвестное действие.');
 }
 
-const PROTOCOL = [
+const PROTOCOL_BASE = [
   'Ты работаешь на компьютере пользователя через приложение Clop Codex.',
   'Чтобы что-то сделать, выведи ровно один блок действия и остановись — приложение выполнит его и пришлёт результат.',
   '',
@@ -252,6 +288,34 @@ const PROTOCOL = [
   '',
   'Правила: за один ответ ровно одно действие; каждое действие может потребовать подтверждения пользователя, отказ — нормальный ответ, не повторяй его молча; когда задача выполнена, просто напиши результат обычным текстом без маркеров. Отвечай по-русски.',
 ].join('\n');
+
+/* Про Студию рассказываем модели, только если связь включена: иначе она
+   предлагала бы недоступное. */
+const PROTOCOL_STUDIO = [
+  '',
+  'Ты подключён к Roblox Studio и можешь строить игру прямо в открытом плейсе.',
+  'Действие в Студии — одна строка JSON:',
+  '%%%STUDIO%%%', '{"op":"...", ...}', '%%%END%%%',
+  '',
+  'Что умеешь (op):',
+  '  tree   — дерево: {"op":"tree","path":"Workspace","depth":3}',
+  '  create — создать: {"op":"create","parent":"Workspace","class":"Part","name":"Пол","props":{"Size":["Vector3",100,1,100],"Position":["Vector3",0,0,0],"Anchored":true,"BrickColor":["BrickColor","Bright green"]}}',
+  '  set    — свойства: {"op":"set","path":"Workspace.Пол","props":{"Material":["Enum","Material","Grass"]}}',
+  '  script — скрипт: {"op":"script","parent":"ServerScriptService","name":"Игра","class":"Script","source":"print(1)"}',
+  '  read   — прочитать: {"op":"read","path":"ServerScriptService.Игра"}',
+  '  delete — удалить: {"op":"delete","path":"Workspace.Пол"}',
+  '  clear  — очистить: {"op":"clear","path":"Workspace"}',
+  '  select — выделить: {"op":"select","path":"Workspace.Пол"}',
+  '',
+  'Значения непростых типов пишутся помеченным списком: ["Vector3",4,1,2], ["Color3",255,80,0],',
+  '["UDim2",0,100,0,50], ["CFrame",0,10,0], ["Enum","Material","Neon"], ["BrickColor","Really red"].',
+  'Числа, строки и да/нет пишутся как есть.',
+  '',
+  'Новая игра начинается так: clear Workspace, затем пол (Part с Anchored=true),',
+  'SpawnLocation, свет и скрипты. Классы и свойства бери настоящие — выдуманное Студия отвергнет.',
+].join('\n');
+
+const PROTOCOL = () => PROTOCOL_BASE + (settings.robloxEnabled ? PROTOCOL_STUDIO : '');
 
 /* ---------- окно ---------- */
 function createWindow() {
@@ -279,6 +343,7 @@ app.whenReady().then(() => {
   settings = { ...DEFAULTS, ...loadJson('settings.json', {}) };
   workDir = settings.workDir && fs.existsSync(settings.workDir) ? settings.workDir : app.getPath('documents');
   applyAutoLaunch();
+  if (settings.robloxEnabled) roblox.старт(Number(settings.robloxPort) || 34873);
   createWindow();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
@@ -426,7 +491,7 @@ async function askStream(body, onDelta) {
 ipcMain.handle('ask', async (_e, { text, model, chatId, attachment }) => {
   if (!session.token) return { ok: false, error: 'нужен вход' };
   session.chatId = chatId || null;
-  let prompt = session.chatId ? text : `${PROTOCOL}\n\nРабочая папка: ${workDir}\n\nЗадача: ${text}`;
+  let prompt = session.chatId ? text : `${PROTOCOL()}\n\nРабочая папка: ${workDir}\n\nЗадача: ${text}`;
   // Один запрос пользователя — это несколько обращений к серверу, поэтому
   // расход и время копим по всей задаче, а не показываем последний шаг
   const started = Date.now();
@@ -510,6 +575,47 @@ ipcMain.handle('update-check', async () => {
   }
 });
 
+/* ---------- Roblox Studio ---------- */
+ipcMain.handle('roblox-status', () => roblox.состояние());
+
+ipcMain.handle('roblox-enable', async (_e, on) => {
+  settings = { ...settings, robloxEnabled: Boolean(on) };
+  saveJson('settings.json', settings);
+  if (on) {
+    const r = await roblox.старт(Number(settings.robloxPort) || 34873);
+    if (!r.ok) return { ok: false, error: r.error, status: roblox.состояние() };
+  } else {
+    roblox.стоп();
+  }
+  return { ok: true, status: roblox.состояние() };
+});
+
+// Плагин ставим сами: человеку остаётся открыть Студию. Порт и секрет
+// подставляются в исходник, копировать ничего не нужно.
+ipcMain.handle('roblox-install', async () => {
+  if (!settings.robloxEnabled) {
+    settings = { ...settings, robloxEnabled: true };
+    saveJson('settings.json', settings);
+  }
+  const запущен = await roblox.старт(Number(settings.robloxPort) || 34873);
+  if (!запущен.ok) return { ok: false, error: запущен.error };
+  const r = roblox.установитьПлагин();
+  return { ...r, status: roblox.состояние() };
+});
+
+ipcMain.handle('roblox-remove', () => roblox.удалитьПлагин());
+
+ipcMain.handle('roblox-open-folder', () => { shell.showItemInFolder(roblox.путьПлагина()); return true; });
+
 ipcMain.handle('version', () => app.getVersion());
 
 ipcMain.handle('stop', () => { stopRequested = true; return true; });
+
+// ВРЕМЕННО: жив ли GPT после замены входа
+if (process.env.CLOP_VERIFY) {
+  app.whenReady().then(() => setTimeout(async () => {
+    const r = await api('/desk/chat', { body: { text: 'Ответь одним словом: работает', model: 'clop-3-haiku' } });
+    console.log('GPT', JSON.stringify({ ok: r.ok, ответ: (r.text || r.error || '').slice(0, 160) }));
+    app.quit();
+  }, 3000));
+}

@@ -363,6 +363,7 @@ window.clop.onApprove((v) => {
 const SWITCHES = {
   swRead: 'autoRead', swWrite: 'autoWrite', swShell: 'autoShell',
   swLaunch: 'autoLaunch', swEnter: 'enterSends', swUsage: 'showUsage', swCompact: 'compact',
+  swRoblox: 'robloxEnabled', swStudio: 'autoStudio',
 };
 
 function syncSettings() {
@@ -387,6 +388,64 @@ for (const [id, key] of Object.entries(SWITCHES)) {
 $('inSteps').onchange = (e) => apply({ maxSteps: Math.min(40, Math.max(2, Number(e.target.value) || 14)) });
 $('inTimeout').onchange = (e) => apply({ shellTimeout: Math.min(600, Math.max(5, Number(e.target.value) || 120)) });
 $('selEffort').onchange = (e) => apply({ effort: e.target.value });
+
+/* ---------- Roblox Studio ----------
+   Состояние спрашиваем у главного процесса: включённая настройка ещё не
+   значит, что Студия открыта и плагин на связи, а человеку важно видеть
+   именно это. */
+let rbxТаймер = null;
+
+function показатьСтудию(st) {
+  if (!st) return;
+  const где = $('rbxState');
+  if (!st.running) {
+    где.textContent = 'Выключено. Включите — и помощник сможет строить игру прямо в открытом плейсе.';
+  } else if (st.connected) {
+    const плейс = st.place && st.place.place ? ('«' + st.place.place + '»') : 'плейс';
+    где.textContent = 'Связь есть: ' + плейс + ' на порту ' + st.port + '. Можно просить построить игру.';
+  } else {
+    где.textContent = 'Порт ' + st.port + ' слушается, плагин пока не отозвался. Откройте Roblox Studio с любым плейсом.';
+  }
+  $('rbxPlugin').textContent = st.pluginInstalled
+    ? 'Плагин установлен: ' + st.pluginPath
+    : 'Не установлен. Нажмите «Установить плагин» — порт и секрет подставятся сами.';
+  $('swRoblox').classList.toggle('on', Boolean(st.running));
+}
+
+async function обновитьСтудию() {
+  try { показатьСтудию(await window.clop.robloxStatus()); } catch { /* окно закрывается */ }
+}
+
+// Опрашиваем, только пока открыты настройки: фоновый таймер незачем
+function следитьЗаСтудией(включить) {
+  clearInterval(rbxТаймер);
+  rbxТаймер = null;
+  if (!включить) return;
+  обновитьСтудию();
+  rbxТаймер = setInterval(обновитьСтудию, 2000);
+}
+
+$('swRoblox').onclick = async (e) => {
+  const было = $('swRoblox').classList.contains('on');
+  const r = await window.clop.robloxEnable(!было);
+  if (!r.ok) $('rbxState').textContent = 'Не вышло включить: ' + (r.error || 'неизвестно');
+  показатьСтудию(r.status);
+  settings = await window.clop.state().then((s) => s.settings);
+  syncSettings();
+  e.currentTarget.animate([{ transform: 'scale(.94)' }, { transform: 'scale(1)' }], { duration: 180, easing: 'ease-out' });
+};
+
+$('rbxInstall').onclick = async () => {
+  const кнопка = $('rbxInstall');
+  кнопка.textContent = 'Ставлю…';
+  const r = await window.clop.robloxInstall();
+  кнопка.textContent = r.ok ? 'Готово' : 'Не вышло';
+  if (!r.ok) $('rbxPlugin').textContent = 'Ошибка: ' + (r.error || 'неизвестно');
+  показатьСтудию(r.status);
+  setTimeout(() => { кнопка.textContent = 'Переустановить плагин'; }, 1800);
+};
+
+$('rbxFolder').onclick = () => window.clop.robloxOpenFolder();
 
 $('clearBtn').onclick = async () => {
   if (busy) return;
@@ -441,7 +500,7 @@ $('stopBtn').onclick = (e) => {
 };
 $('newBtn').onclick = newChat;
 $('sbBtn').onclick = () => document.body.classList.toggle('collapsed');
-$('setBtn').onclick = () => { $('setOverlay').style.display = 'flex'; };
+$('setBtn').onclick = () => { $('setOverlay').style.display = 'flex'; следитьЗаСтудией(true); };
 
 const pickDir = async () => {
   const dir = await window.clop.pickDir();
@@ -463,7 +522,7 @@ $('outBtn').onclick = async () => {
 
 document.addEventListener('click', (e) => {
   const close = e.target.getAttribute && e.target.getAttribute('data-close');
-  if (close) $(close).style.display = 'none';
+  if (close) { $(close).style.display = 'none'; if (close === 'setOverlay') следитьЗаСтудией(false); }
 
   const del = e.target.getAttribute && e.target.getAttribute('data-del');
   if (del) {

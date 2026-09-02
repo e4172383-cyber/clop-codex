@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld('clop', {
   version: () => ipcRenderer.invoke('version'),
   stop: () => ipcRenderer.invoke('stop'),
 
+  robloxStatus: () => ipcRenderer.invoke('roblox-status'),
+  robloxEnable: (on) => ipcRenderer.invoke('roblox-enable', on),
+  robloxInstall: () => ipcRenderer.invoke('roblox-install'),
+  robloxRemove: () => ipcRenderer.invoke('roblox-remove'),
+  robloxOpenFolder: () => ipcRenderer.invoke('roblox-open-folder'),
+
   loginStart: () => ipcRenderer.invoke('login-start'),
   loginPoll: (v) => ipcRenderer.invoke('login-poll', v),
   me: () => ipcRenderer.invoke('me'),
